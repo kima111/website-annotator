@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face{font-family:Inter; src:url('/inter.css'); font-display:swap}
+:root{--bg:#0a0a0a;--muted:#111;--card:#121212;--accent:#7dd3fc}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+button{cursor:pointer}
+input,button{font:inherit}
