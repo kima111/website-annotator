@@ -1,6 +1,8 @@
+// app/api/comments/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabaseServer';
 
+export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest){
@@ -12,13 +14,7 @@ export async function GET(req: NextRequest){
   const url = req.nextUrl.searchParams.get('url') || undefined;
 
   let q = supa.from('comments').select('*');
-
-  if (projectId) {
-    q = q.eq('project_id', projectId);
-  } else {
-    // legacy path: per-user
-    q = q.eq('user_id', user.id);
-  }
+  if (projectId) q = q.eq('project_id', projectId); else q = q.eq('user_id', user.id);
   if (url) q = q.eq('url', url);
 
   const { data, error } = await q.order('created_at', { ascending: false });
@@ -33,7 +29,6 @@ export async function POST(req: NextRequest){
   if(!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   await supa.from('profiles').upsert({ id: user.id, email: (user as any).email ?? null });
-
   if (!payload.project_id) return NextResponse.json({ error: 'project_id required' }, { status: 400 });
 
   const row = {
@@ -50,10 +45,7 @@ export async function POST(req: NextRequest){
   };
 
   const { error } = await supa.from('comments').upsert(row);
-  if (error) {
-    // surface the real message to the client (FK/RLS/etc.)
-    return NextResponse.json({ error: error.message }, { status: 403 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
 
   await supa.from('activity').insert({ user_id: user.id, type: 'save_comment', url: row.url, meta: { project_id: row.project_id, id: row.id } });
   return NextResponse.json({ ok: true });
