@@ -61,6 +61,7 @@ root.innerHTML = `
     .status{ font-size:11px; color:#8b8b8b }
     .link{ color:#7dd3fc; text-decoration:none }
     .input{ width:100%; background:#111; color:#fff; border:1px solid #333; border-radius:8px; padding:6px; margin-top:6px }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; word-break: break-all }
   </style>
   <div class="bar">
     <span>Annotator</span>
@@ -83,8 +84,61 @@ const $panel = root.getElementById('panel');
 
 // ---------- helpers ----------
 function cssEscape(s){return (s||'').replace(/([!"#$%&'()*+,./:;<=>?@\[\]^`{|}~ ])/g,'\\$1');}
-function escapeHtml(s){return (s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+function escapeHtml(s){
+  return (s ?? '').replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
 function querySelectorDeep(sel){ try { return document.querySelector(sel); } catch { return null } }
+
+// Extract a readable filename even through /asset?url=...
+function parseProxiedAssetFilename(src){
+  try{
+    if (!src) return '';
+    const u = new URL(src, location.origin);
+    if (u.pathname === '/asset' && u.searchParams.get('url')) {
+      const inner = new URL(u.searchParams.get('url'));
+      const file = inner.pathname.split('/').pop() || '';
+      return file.split('?')[0];
+    }
+    const file = u.pathname.split('/').pop() || '';
+    return file.split('?')[0];
+  }catch{ return '' }
+}
+
+// Human-friendly label for a pin target
+function humanLabel(p){
+  const el = querySelectorDeep(p.selector);
+  if (!el) return p.selector; // fallback to raw if not found
+  if (el.tagName === 'IMG') {
+    const alt = el.getAttribute('alt');
+    if (alt) return `Image: ${alt}`;
+    const src = el.getAttribute('src') || '';
+    const file = parseProxiedAssetFilename(src);
+    return `Image: ${file || 'img'}`;
+  }
+  const aria = el.getAttribute('aria-label') || el.getAttribute('name');
+  if (aria) return `${el.tagName}: ${aria}`;
+  const txt = (el.innerText || '').trim().replace(/\s+/g,' ').slice(0,60);
+  if (txt) return `${el.tagName}: “${txt}${(el.innerText||'').length>60?'…':''}”`;
+  return el.tagName.toLowerCase();
+}
+
+// Build a short, stable-ish CSS selector for an element
+function buildSelector(el){
+  let node = el, depth = 0, parts = [];
+  while (node && node.nodeType === 1 && depth < 8) {
+    if (node.id) { parts.unshift(`#${cssEscape(node.id)}`); break; }
+    let part = node.nodeName.toLowerCase();
+    const cls = (node.className || '').toString().trim().split(/\s+/).filter(Boolean).slice(0,2);
+    if (cls.length) part += '.' + cls.map(cssEscape).join('.');
+    const siblings = Array.from(node.parentNode?.children || []).filter(n => n.nodeName === node.nodeName);
+    const idx = siblings.indexOf(node) + 1; if (idx > 1) part += `:nth-of-type(${idx})`;
+    parts.unshift(part);
+    node = node.parentElement; depth++;
+  }
+  return parts.join(' > ');
+}
 
 function toast(msg){
   const t = document.createElement('div');
@@ -103,22 +157,6 @@ function showAuthBanner(){
   d.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);background:#7c2d12;color:#fff;border:1px solid #b45309;border-radius:10px;padding:6px 10px;font:600 12px system-ui;z-index:2147483647;pointer-events:auto';
   d.innerHTML = 'Please <a href="/login" target="_top" style="color:#7dd3fc">log in</a> to load and save annotations.';
   root.appendChild(d);
-}
-
-// Build a short, stable-ish CSS selector for an element
-function buildSelector(el){
-  let node = el, depth = 0, parts = [];
-  while (node && node.nodeType === 1 && depth < 8) {
-    if (node.id) { parts.unshift(`#${cssEscape(node.id)}`); break; }
-    let part = node.nodeName.toLowerCase();
-    const cls = (node.className || '').toString().trim().split(/\s+/).filter(Boolean).slice(0,2);
-    if (cls.length) part += '.' + cls.map(cssEscape).join('.');
-    const siblings = Array.from(node.parentNode?.children || []).filter(n => n.nodeName === node.nodeName);
-    const idx = siblings.indexOf(node) + 1; if (idx > 1) part += `:nth-of-type(${idx})`;
-    parts.unshift(part);
-    node = node.parentElement; depth++;
-  }
-  return parts.join(' > ');
 }
 
 // ---------- network / data ----------
@@ -238,11 +276,11 @@ function refresh(){
     $pins.appendChild(d);
   });
 
-  // Panel
+  // Panel: human label + raw selector below it
   $panel.innerHTML = state.pins.map((p,i)=> `
     <div class="row">
-      <div><b>#${i+1}</b> <code style="font-size:11px">${escapeHtml(p.selector)}</code></div>
-      <div class="status">${p.status || 'open'} · ${(new Date(p.ts)).toLocaleString()}</div>
+      <div><b>#${i+1}</b> ${escapeHtml(humanLabel(p))}</div>
+      <div class="status">${escapeHtml(p.status || 'open')} · ${(new Date(p.ts)).toLocaleString()}</div>
       <textarea class="input" data-id="${p.id}" placeholder="Notes / change request">${p.comment||''}</textarea>
       <div style="display:flex; gap:6px; margin-top:6px">
         <button class="btn ghost" data-act="snap" data-id="${p.id}">Snapshot</button>
@@ -314,11 +352,11 @@ root.getElementById('addpin').addEventListener('click', ()=>{
     state.pins.push(pin);
     refresh();
     document.removeEventListener('click', on, true);
-    host.style.pointerEvents = 'none';
+    host.style.pointerEvents = 'auto'; // re-enable toolbar/panel clicks
   };
   const cancel = ()=>{
     document.removeEventListener('click', on, true);
-    host.style.pointerEvents = 'none';
+    host.style.pointerEvents = 'auto'; // re-enable toolbar/panel clicks
   }
   document.addEventListener('click', on, true);
 });
