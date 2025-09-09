@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabaseServer';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+const noStore = { 'Cache-Control': 'no-store, max-age=0' };
+
+
 export async function GET(req: NextRequest){
   const supa = createClient();
   const { data: { user } } = await supa.auth.getUser();
