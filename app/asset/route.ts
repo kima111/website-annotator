@@ -1,42 +1,27 @@
-// app/asset/route.ts
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
-
-function guessAccept(u: URL) {
-  const p = u.pathname.toLowerCase();
-  if (p.endsWith('.svg'))  return 'image/svg+xml,image/*;q=0.9,*/*;q=0.8';
-  if (p.endsWith('.png'))  return 'image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5';
-  if (p.endsWith('.jpg') || p.endsWith('.jpeg'))
-                          return 'image/avif,image/webp,image/jpeg,image/*;q=0.8,*/*;q=0.5';
-  if (p.endsWith('.webp')) return 'image/avif,image/webp,image/*;q=0.8,*/*;q=0.5';
-  if (p.endsWith('.gif'))  return 'image/gif,image/*;q=0.8,*/*;q=0.5';
-  if (p.endsWith('.css'))  return 'text/css,*/*;q=0.1';
-  return '*/*';
-}
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get('url');
-  const ref = req.nextUrl.searchParams.get('ref') || undefined;
-  if (!url) return new Response('missing url', { status: 400 });
+  const url = req.nextUrl.searchParams.get("url");
+  if (!url) return NextResponse.json({ error: "url required" }, { status: 400 });
 
-  const u = new URL(url);
-  const accept = guessAccept(u);
+  let target: URL;
+  try { target = new URL(url); } catch { return NextResponse.json({ error: "bad url" }, { status: 400 }); }
 
-  const res = await fetch(u, {
-    redirect: 'follow',
+  const upstream = await fetch(target.toString(), {
     headers: {
-      'accept': accept,
-      'accept-encoding': 'identity',      // avoid double-compressed responses
-      'referer': ref || `${u.protocol}//${u.host}/`,
-      'user-agent': 'Mozilla/5.0 Annotator',
+      referer: req.nextUrl.searchParams.get("ref") || "",
+      "user-agent": req.headers.get("user-agent") || "Mozilla/5.0",
     },
+    redirect: "follow",
   });
 
-  // Copy headers but drop encoding/length to prevent decoding errors
-  const h = new Headers(res.headers);
-  ['content-encoding', 'transfer-encoding', 'content-length'].forEach(k => h.delete(k));
+  const headers = new Headers(upstream.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  headers.set("Cache-Control", "private, max-age=60");
 
-  return new Response(res.body, { status: res.status, headers: h });
+  return new NextResponse(upstream.body, { status: upstream.status, headers });
 }

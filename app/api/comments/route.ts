@@ -1,55 +1,103 @@
 // app/api/comments/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabaseServer';
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabaseServer";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
 
-const noStore = { 'Cache-Control': 'no-store, max-age=0' };
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createAdminClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
 
+async function assertAccess(supa: ReturnType<typeof admin>, userId: string, projectId: string) {
+  const { data: proj, error } = await supa
+    .from("projects")
+    .select("id, owner")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!proj) return { ok: false, status: 404, msg: "project not found" };
+  if (proj.owner === userId) return { ok: true };
 
-export async function GET(req: NextRequest){
-  const supa = createClient();
-  const { data: { user } } = await supa.auth.getUser();
-  if(!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const { data: mem } = await supa
+    .from("memberships")
+    .select("user_id")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!mem) return { ok: false, status: 403, msg: "forbidden" };
+  return { ok: true };
+}
 
-  const projectId = req.nextUrl.searchParams.get('project_id') || undefined;
-  const url = req.nextUrl.searchParams.get('url') || undefined;
+export async function GET(req: NextRequest) {
+  const userClient = createClient();
+  const { data: auth } = await userClient.auth.getUser();
+  const user = auth?.user ?? null;
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  let q = supa.from('comments').select('*');
-  if (projectId) q = q.eq('project_id', projectId); else q = q.eq('user_id', user.id);
-  if (url) q = q.eq('url', url);
+  const sp = req.nextUrl.searchParams;
+  const projectId = sp.get("project_id");
+  const url = sp.get("url"); // optional: page-level filter
 
-  const { data, error } = await q.order('created_at', { ascending: false });
-  if(error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!projectId) return NextResponse.json({ error: "project_id required" }, { status: 400 });
+
+  const supa = admin();
+  const access = await assertAccess(supa, user.id, projectId);
+  if (!access.ok) return NextResponse.json({ error: access.msg }, { status: access.status! });
+
+  let query = supa
+    .from("comments")
+    .select("id,project_id,user_id,selector,x,y,bbox,comment,status,image,url,created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  if (url) query = query.eq("url", url);
+
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data });
 }
 
-export async function POST(req: NextRequest){
-  const payload = await req.json();
-  const supa = createClient();
-  const { data: { user } } = await supa.auth.getUser();
-  if(!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+export async function POST(req: NextRequest) {
+  const userClient = createClient();
+  const { data: auth } = await userClient.auth.getUser();
+  const user = auth?.user ?? null;
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  await supa.from('profiles').upsert({ id: user.id, email: (user as any).email ?? null });
-  if (!payload.project_id) return NextResponse.json({ error: 'project_id required' }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body || !body.project_id) {
+    return NextResponse.json({ error: "project_id required" }, { status: 400 });
+  }
 
-  const row = {
-    id: payload.id,
+  const supa = admin();
+  const access = await assertAccess(supa, user.id, body.project_id);
+  if (!access.ok) return NextResponse.json({ error: access.msg }, { status: access.status! });
+
+  const payload = {
+    id: body.id, // allow client id for idempotency
+    project_id: body.project_id,
     user_id: user.id,
-    project_id: payload.project_id,
-    url: payload.url,
-    selector: payload.selector,
-    x: payload.x, y: payload.y,
-    bbox: payload.bbox,
-    comment: payload.comment || '',
-    status: payload.status || 'open',
-    image: payload.image || null
+    selector: body.selector ?? "",
+    x: body.x ?? null,
+    y: body.y ?? null,
+    bbox: body.bbox ?? null,
+    comment: body.comment ?? "",
+    status: body.status ?? "open",
+    image: body.image ?? null,
+    url: body.url ?? null,
   };
 
-  const { error } = await supa.from('comments').upsert(row);
-  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+  const { data, error } = await supa
+    .from("comments")
+    .upsert(payload, { onConflict: "id" })
+    .select("id,project_id,user_id,selector,x,y,bbox,comment,status,image,url,created_at")
+    .single();
 
-  await supa.from('activity').insert({ user_id: user.id, type: 'save_comment', url: row.url, meta: { project_id: row.project_id, id: row.id } });
-  return NextResponse.json({ ok: true });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ data });
 }

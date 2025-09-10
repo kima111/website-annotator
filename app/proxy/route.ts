@@ -1,172 +1,184 @@
-import { NextRequest, NextResponse } from 'next/server';
-import * as cheerio from 'cheerio';
-import { safeParseUrl, absolutize } from '@/lib/url';
+// app/proxy/route.ts
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs"; // avoid Edge runtime stream/encoding issues
 
-export async function GET(req: NextRequest){
-  const raw = req.nextUrl.searchParams.get('url') || '';
-  const u = safeParseUrl(raw);
-  if(!u) return new NextResponse('Bad URL', { status: 400 });
+export async function GET(req: NextRequest) {
+  const raw = req.nextUrl.searchParams.get("url");
+  if (!raw) return NextResponse.json({ error: "url required" }, { status: 400 });
 
-  // Forward common headers so upstream CDNs are happy
-  const ua = req.headers.get('user-agent') || undefined;
-  const accept = req.headers.get('accept') || 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
-  const acceptLang = req.headers.get('accept-language') || undefined;
-
-  const upstream = await fetch(u.toString(), {
-    redirect: 'follow',
-    headers: {
-      'user-agent': ua ?? 'Mozilla/5.0 (compatible; Annotator/1.0) NextJS',
-      'accept': accept,
-      'accept-language': acceptLang ?? 'en',
-      'referer': u.origin
-    }
-  });
-
-  const ctype = upstream.headers.get('content-type') || '';
-  if(!ctype.includes('text/html')){
-    // Non-HTML → bounce through /asset
-    return NextResponse.redirect(new URL(`/asset?url=${encodeURIComponent(u.toString())}`, req.url));
+  let target: URL;
+  try {
+    target = new URL(raw);
+  } catch {
+    return NextResponse.json({ error: "bad url" }, { status: 400 });
   }
 
-  const html = await upstream.text();
-  const $ = cheerio.load(html, { decodeEntities: false });
+  try {
+    const upstream = await fetch(target.toString(), {
+      headers: {
+        "user-agent":
+          req.headers.get("user-agent") ??
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
+        "accept":
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": req.headers.get("accept-language") ?? "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+    });
 
-  const base = u.toString();
+    const ct = upstream.headers.get("content-type") || "";
 
-// helper to build asset URLs that remember the referring page
-const asset = (abs: string) => `/asset?url=${encodeURIComponent(abs)}&ref=${encodeURIComponent(base)}`;
-
-// Rewrite basic attributes to our proxy
-const rewrites: ReadonlyArray<[string, string]> = [
-  ['a','href'], ['img','src'], ['script','src'], ['link','href'], ['source','src'], ['iframe','src']
-];
-for (const [tag, attr] of rewrites) {
-  $(tag).each((_, el) => {
-    const v = $(el).attr(attr); if (!v) return;
-    const abs = absolutize(base, v);
-    if (tag === 'a') {
-      $(el).attr('href', `/proxy?url=${encodeURIComponent(abs)}`);
-    } else {
-      $(el).attr(attr, asset(abs));
+    // Non-HTML: stream through like /asset
+    if (!ct.toLowerCase().includes("text/html")) {
+      const h = new Headers(upstream.headers);
+      h.delete("content-encoding");
+      h.delete("content-length");
+      h.delete("transfer-encoding");
+      h.set("Cache-Control", "private, max-age=60");
+      return new NextResponse(upstream.body, { status: upstream.status, headers: h });
     }
-  });
+
+    // HTML: rewrite and inject patch
+    const html = await upstream.text();
+    const rewritten = rewriteHtml(html, target);
+    return new NextResponse(rewritten, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: `proxy fetch failed: ${e?.message || String(e)}` },
+      { status: 502 }
+    );
+  }
 }
 
-  // Responsive images – rewrite srcset-like attributes
-  function rewriteSrcset(tag: string, attr: string) {
-    $(tag).each((_, el) => {
-      const v = $(el).attr(attr); if (!v) return;
-      const parts = v.split(',').map(s => s.trim()).filter(Boolean).map(item => {
-        const m = item.match(/^(\S+)(?:\s+(.*))?$/);
-        if (!m) return item;
-        const abs = absolutize(base, m[1]);
-        const desc = m[2] ? ` ${m[2]}` : '';
-        return `${asset(abs)}${desc}`;
-      });
-      $(el).attr(attr, parts.join(', '));
-    });
-  }
-  rewriteSrcset('img','srcset');
-  rewriteSrcset('source','srcset');
-  rewriteSrcset('img','data-srcset');
-  rewriteSrcset('source','data-srcset');
+/* ---------------- helpers ---------------- */
 
-  // Lazy-loading data-* src variants & video posters
-  $('img,source').each((_, el) => {
-    ['data-src','data-lazy-src','data-original','data-hires'].forEach(a => {
-      const v = $(el).attr(a); if (!v) return;
-      const abs = absolutize(base, v);
-      $(el).attr(a, asset(abs));
-    });
-  });
-  $('video').each((_, el) => {
-    const v = $(el).attr('poster'); if (!v) return;
-    const abs = absolutize(base, v);
-    $(el).attr('poster', asset(abs));
-  });
-
-  // Inline CSS: rewrite url(...) tokens too
-  $('style').each((_, el) => {
-    const t = $(el).html() || '';
-    $(el).html(t.replace(/url\(([^)]+)\)/g, (m, g1) => {
-      const raw = g1.replace(/["']/g, '').trim();
-      const abs = absolutize(base, raw);
-      return `url(${asset(abs)})`;
-    }));
-  });
-
-
-  // Inline CSS: rewrite url(...) tokens too
-  $('style').each((_,el)=>{
-    const t = $(el).html() || '';
-    $(el).html(t.replace(/url\(([^)]+)\)/g, (m, g1)=>{
-      const raw = g1.replace(/["']/g,'').trim();
-      const abs = absolutize(base, raw);
-      return `url(/asset?url=${encodeURIComponent(abs)})`;
-    }));
-  });
-
-  // Remove CSP so injected overlay can run
-  $('meta[http-equiv="Content-Security-Policy"]').remove();
-
-const projectParam = req.nextUrl.searchParams.get('project') || '';
-
-const boot = `
-<script>(function(){
+function abs(u: string, base: string) {
   try {
-    // Show a tiny fallback pill immediately (removed by overlay when ready)
-    var fb = document.createElement('div');
-    fb.id = '__annotator_boot_pill';
-    fb.setAttribute('style',
-      'position:fixed;top:12px;left:50%;transform:translateX(-50%);' +
-      'z-index:2147483647;background:#0b0b0b;color:#fff;padding:8px 12px;' +
-      'border-radius:999px;border:1px solid #333;font:600 12px system-ui;pointer-events:auto'
-    );
-    fb.textContent = 'Annotator loading…';
-    (document.body || document.documentElement).appendChild(fb);
-
-    // Pass context to overlay
-    window.__ANNOTATOR__ = {
-      url: ${JSON.stringify(u.toString())},
-      project: ${JSON.stringify(projectParam)}
-    };
-
-    function inject(retry){
-      var s = document.createElement('script');
-      s.src = '/overlay.js' + (retry ? ('?r=' + Date.now()) : '');
-      s.type = 'module';
-      s.crossOrigin = 'anonymous';
-      s.onerror = function(){ console.error('[annotator] overlay load failed'); };
-      (document.head || document.documentElement).appendChild(s);
-    }
-    inject(false);
-
-    // Re-try if not marked ready
-    setTimeout(function(){ if(!window.__ANNOTATOR_READY__) inject(true); }, 1500);
-    var tries = 0;
-    var iv = setInterval(function(){
-      tries++;
-      if(window.__ANNOTATOR_READY__ || tries>10){ clearInterval(iv); return; }
-      inject(true);
-    }, 2000);
-  } catch(e){ console.error('[annotator] boot error', e); }
-})();<\/script>
-`;
-$('body').append(boot);
-
-
-
-  const out = $.html();
-  return new NextResponse(out, {
-  headers: {
-    'content-type': 'text/html; charset=utf-8',
-    'x-annotator-proxied': '1',
-    'cache-control': 'no-store',
-    // Relax CSP inside the proxied document so the injected script always runs
-    "content-security-policy": "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'"
+    return new URL(u, base).href;
+  } catch {
+    return u;
   }
-});
+}
 
+function unwrapRemoteAsset(u: string, baseOrigin: string) {
+  // If upstream already has /asset?url=..., unwrap inner url to avoid double-wrapping
+  try {
+    const parsed = new URL(u);
+    if (parsed.origin === baseOrigin && parsed.pathname === "/asset") {
+      const inner = parsed.searchParams.get("url");
+      if (inner) return new URL(inner, baseOrigin).href;
+    }
+  } catch {}
+  return u;
+}
+
+function toAsset(u: string, ref: string) {
+  return `/asset?url=${encodeURIComponent(u)}&ref=${encodeURIComponent(ref)}`;
+}
+
+function rewriteSrcset(value: string, base: string, baseOrigin: string, refUrl: string) {
+  return value
+    .split(",")
+    .map((part) => {
+      const trimmed = part.trim();
+      if (!trimmed) return trimmed;
+      const [u, ...rest] = trimmed.split(/\s+/);
+      const a = abs(u, base);
+      const unwrapped = unwrapRemoteAsset(a, baseOrigin);
+      const prox = toAsset(unwrapped, refUrl);
+      return [prox, ...rest].join(" ");
+    })
+    .join(", ");
+}
+
+function rewriteHtml(html: string, target: URL) {
+  const pageUrl = target.toString();
+  const origin = `${target.protocol}//${target.host}`;
+  const base = `${origin}${target.pathname}`;
+  const baseOrigin = origin;
+
+  // inside rewriteHtml(), build `patch` like this:
+const patch = `
+<base href="${origin}/">
+<script>(function(){
+  var ORIGIN=${JSON.stringify(origin)};
+  var REF=${JSON.stringify(pageUrl)};
+  function abs(u){ try { return new URL(u, ORIGIN).href; } catch { return u; } }
+  function prox(u){ return '/asset?url=' + encodeURIComponent(u) + '&ref=' + encodeURIComponent(REF); }
+
+  // helper: detect overlay/annotator-tagged requests
+  function hasAnnotatorHeader(input, init){
+    try{
+      var headers = (init && init.headers) || (input && input.headers) || null;
+      if (!headers) return false;
+      if (typeof headers.get === 'function') return !!headers.get('x-annotator');
+      if (typeof headers === 'object'){
+        for (var k in headers){ if (k && k.toLowerCase() === 'x-annotator') return true; }
+      }
+    }catch(e){}
+    return false;
+  }
+
+  // fetch proxy
+  var _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      if (hasAnnotatorHeader(input, init)) {
+        // let overlay/API calls go straight to our app
+        return _fetch(input, init);
+      }
+      var u = (typeof input === 'string') ? input : input.url;
+      var a = abs(u);
+      return _fetch(prox(a), init);
+    }catch(e){
+      return _fetch(input, init);
+    }
+  };
+
+  // XHR proxy (ok to leave as-is; overlay uses fetch)
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url){
+    try{
+      var a = abs(url);
+      return _open.apply(this, [method, prox(a)]);
+    }catch(e){
+      return _open.apply(this, arguments);
+    }
+  };
+})();</script>`.trim();
+
+
+  let out = html;
+  if (/<head[^>]*>/i.test(out)) {
+    out = out.replace(/<head([^>]*)>/i, (m, g1) => `<head${g1}>${patch}`);
+  } else if (/<html[^>]*>/i.test(out)) {
+    out = out.replace(/<html([^>]*)>/i, (m, g1) => `<html${g1}><head>${patch}</head>`);
+  } else {
+    out = `${patch}\n${out}`;
+  }
+
+  // Rewrite src/href to /asset
+  out = out.replace(/\s(?:src|href)=["']([^"']+)["']/gi, (m, u) => {
+    if (/^(data:|javascript:|#)/i.test(u)) return m;
+    const a = abs(u, base);
+    const unwrapped = unwrapRemoteAsset(a, baseOrigin);
+    return m.replace(u, toAsset(unwrapped, pageUrl));
+  });
+
+  // Rewrite srcset too
+  out = out.replace(/\s(srcset)=["']([^"']+)["']/gi, (_m, attr, val) => {
+    return ` ${attr}="${rewriteSrcset(val, base, baseOrigin, pageUrl)}"`;
+  });
+
+  return out;
 }

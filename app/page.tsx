@@ -1,5 +1,6 @@
 // app/page.tsx
 import Link from "next/link";
+import { headers as nextHeaders, cookies } from "next/headers";
 import { createClient } from "@/lib/supabaseServer";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
 
@@ -10,31 +11,50 @@ type Project = {
   id: string;
   name: string | null;
   origin: string | null;
-  created_at: string | null;
+  created_at?: string | null;
   updated_at?: string | null;
 };
 
+function getBaseUrl() {
+  // Prefer env for prod; fall back to current request’s host in dev
+  const env = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (env) return env;
+  const h = nextHeaders();
+  const proto = h.get("x-forwarded-proto") || "http";
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  return `${proto}://${host}`;
+}
+
+async function fetchProjectsSSR(): Promise<Project[]> {
+  const base = getBaseUrl();
+
+  // Build Cookie header from the current request’s cookies
+  const cookieHeader = cookies()
+    .getAll()
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
+
+  const res = await fetch(`${base}/api/projects/list`, {
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      // forward auth cookies so /api/projects/list sees your session
+      cookie: cookieHeader,
+    },
+  }).catch(() => null as any);
+
+  if (!res || !res.ok) return [];
+  const js = (await res.json().catch(() => null)) as { projects?: Project[] } | null;
+  return js?.projects ?? [];
+}
+
 export default async function Home() {
+  // still read user for the header UI
   const supa = createClient();
   const { data: auth } = await supa.auth.getUser();
   const user = auth?.user ?? null;
 
-  let projects: Project[] = [];
-  if (user) {
-    const tryUpdated = await supa
-      .from("projects")
-      .select("id,name,origin,created_at,updated_at")
-      .order("updated_at", { ascending: false });
-    if (tryUpdated.error) {
-      const fallback = await supa
-        .from("projects")
-        .select("id,name,origin,created_at")
-        .order("created_at", { ascending: false });
-      projects = fallback.data ?? [];
-    } else {
-      projects = tryUpdated.data ?? [];
-    }
-  }
+  const projects = user ? await fetchProjectsSSR() : [];
 
   return (
     <main className="max-w-4xl mx-auto p-6">
@@ -43,8 +63,7 @@ export default async function Home() {
       </h1>
 
       <p className="text-neutral-300 mb-6">
-        Open any public URL, drop pins, discuss, and export actionable changes — without
-        adding a script to the target site.
+        Open any public URL, drop pins, discuss, and export actionable changes — without adding a script to the target site.
       </p>
 
       <p className="text-neutral-400 mb-6 text-xs">
@@ -107,9 +126,12 @@ export default async function Home() {
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {projects.map((p) => {
                 const title = p.name || p.origin || "Untitled project";
+                // inside the map((p) => ...) where you render each project
+                const targetUrl = (p as any).last_url || p.origin;  // <— use last_url first
                 const annotateHref =
                   `/annotate/view?project=${encodeURIComponent(p.id)}` +
-                  (p.origin ? `&url=${encodeURIComponent(p.origin)}` : "");
+                  (targetUrl ? `&url=${encodeURIComponent(targetUrl)}` : "");
+
                 return (
                   <li
                     key={p.id}
@@ -121,7 +143,6 @@ export default async function Home() {
                         {p.origin || "—"}
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        {/* Primary action is now Annotate (replaces Open) */}
                         <Link
                           href={annotateHref}
                           className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-semibold bg-sky-500 text-black hover:bg-sky-400"
@@ -140,8 +161,7 @@ export default async function Home() {
       )}
 
       <div className="mt-10 text-xs text-neutral-500">
-        By using this tool you agree to proxy the requested page for review purposes and
-        respect third-party Terms of Service.
+        By using this tool you agree to proxy the requested page for review purposes and respect third-party Terms of Service.
       </div>
     </main>
   );

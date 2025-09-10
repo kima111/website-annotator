@@ -124,22 +124,6 @@ function humanLabel(p){
   return el.tagName.toLowerCase();
 }
 
-// Build a short, stable-ish CSS selector for an element
-function buildSelector(el){
-  let node = el, depth = 0, parts = [];
-  while (node && node.nodeType === 1 && depth < 8) {
-    if (node.id) { parts.unshift(`#${cssEscape(node.id)}`); break; }
-    let part = node.nodeName.toLowerCase();
-    const cls = (node.className || '').toString().trim().split(/\s+/).filter(Boolean).slice(0,2);
-    if (cls.length) part += '.' + cls.map(cssEscape).join('.');
-    const siblings = Array.from(node.parentNode?.children || []).filter(n => n.nodeName === node.nodeName);
-    const idx = siblings.indexOf(node) + 1; if (idx > 1) part += `:nth-of-type(${idx})`;
-    parts.unshift(part);
-    node = node.parentElement; depth++;
-  }
-  return parts.join(' > ');
-}
-
 function toast(msg){
   const t = document.createElement('div');
   t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
@@ -159,28 +143,34 @@ function showAuthBanner(){
   root.appendChild(d);
 }
 
+// ---------- network helpers ----------
+const API_HEADERS = { accept: 'application/json', 'x-annotator': '1' };
+const API_JSON_HEADERS = { ...API_HEADERS, 'content-type': 'application/json' };
+
 let ensureInFlight = null;
 
 async function ensureProject(){
   if (state.projectId) return state.projectId;
   if (ensureInFlight) return ensureInFlight;
 
-  const sp = new URLSearchParams(window.location.search);
-  const forwarded = state.forwardedProject || sp.get('project') || '';
+  const forwarded = state.forwardedProject;
   const endpoint = forwarded
     ? `/api/projects/ensure?project=${encodeURIComponent(forwarded)}`
     : `/api/projects/ensure?url=${encodeURIComponent(state.url)}`;
 
   ensureInFlight = (async () => {
     try{
-      const r = await fetch(endpoint, { cache: 'no-store', credentials: 'include', headers: { 'accept': 'application/json' } });
+      const r = await fetch(endpoint, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: API_HEADERS
+      });
       if (r.status === 401) { showAuthBanner(); return null; }
       const js = await r.json().catch(()=>null);
       if (!r.ok) { toast(js?.error || `Project ensure failed (${r.status})`); return null; }
       state.projectId = js?.project?.id || null;
       return state.projectId;
     } finally {
-      // tiny microtask delay so concurrent callers all await the same promise before we clear it
       setTimeout(() => { ensureInFlight = null; }, 0);
     }
   })();
@@ -193,11 +183,10 @@ async function loadPins(){
     await ensureProject();
     if (!state.projectId) return;
   }
-  // ...rest unchanged...
   try{
     const res = await fetch(
-      `/api/comments?project_id=${encodeURIComponent(state.projectId)}&url=${encodeURIComponent(state.url)}`,
-      { headers: { 'accept': 'application/json' }, credentials: 'include' }
+      `/api/comments?project_id=${encodeURIComponent(state.projectId)}&url=${encodeURIComponent(state.url)}&ts=${Date.now()}`,
+      { headers: API_HEADERS, credentials: 'include', cache: 'no-store' }
     );
     if(res.status===401){ showAuthBanner(); return; }
     if(res.status===403){ toast('No permission to view pins for this project.'); return; }
@@ -223,8 +212,9 @@ async function savePin(pin){
     const payload = { ...pin, project_id: state.projectId, url: state.url };
     const res = await fetch('/api/comments', {
       method:'POST',
-      headers:{'content-type':'application/json'},
+      headers: API_JSON_HEADERS,   // ⬅ content-type + x-annotator
       credentials: 'include',
+      cache: 'no-store',
       body: JSON.stringify(payload)
     });
     if(res.status===401){ showAuthBanner(); return false; }
@@ -245,7 +235,12 @@ async function savePin(pin){
 
 async function removePin(id){
   try {
-    const res = await fetch(`/api/comments/${id}`, { method:'DELETE', credentials: 'include' });
+    const res = await fetch(`/api/comments/${id}?ts=${Date.now()}`, {
+      method:'DELETE',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: API_HEADERS   // ⬅ x-annotator + accept
+    });
     if(res.status===401){ showAuthBanner(); return false; }
     if(res.status===403){
       const j = await res.json().catch(()=>null);
@@ -260,6 +255,22 @@ async function removePin(id){
     await loadPins();
     return true;
   } catch { toast('Delete error'); return false; }
+}
+
+// ---------- selector builder ----------
+function buildSelector(el){
+  let node = el, depth = 0, parts = [];
+  while (node && node.nodeType === 1 && depth < 8) {
+    if (node.id) { parts.unshift(`#${cssEscape(node.id)}`); break; }
+    let part = node.nodeName.toLowerCase();
+    const cls = (node.className || '').toString().trim().split(/\s+/).filter(Boolean).slice(0,2);
+    if (cls.length) part += '.' + cls.map(cssEscape).join('.');
+    const siblings = Array.from(node.parentNode?.children || []).filter(n => n.nodeName === node.nodeName);
+    const idx = siblings.indexOf(node) + 1; if (idx > 1) part += `:nth-of-type(${idx})`;
+    parts.unshift(part);
+    node = node.parentElement; depth++;
+  }
+  return parts.join(' > ');
 }
 
 // ---------- UI behaviors ----------

@@ -1,34 +1,51 @@
 // app/api/comments/[id]/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabaseServer';
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabaseServer";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
-const noStore = { 'Cache-Control': 'no-store, max-age=0' };
-
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supa = createClient();
-  const { data: { user } } = await supa.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: noStore });
-  }
-
-  const { error } = await supa.from('comments').delete().eq('id', params.id);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 403, headers: noStore });
-  }
-  return NextResponse.json({ ok: true }, { headers: noStore });
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createAdminClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const userClient = createClient();
+  const { data: auth } = await userClient.auth.getUser();
+  const user = auth?.user ?? null;
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string }}){
-  const body = await req.json();
-  const supa = createClient();
-  const { data: { user } } = await supa.auth.getUser();
-  if(!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  const { error } = await supa.from('comments').update(body).eq('id', params.id).eq('user_id', user.id);
-  if(error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await supa.from('activity').insert({ user_id: user.id, type: 'update_comment', meta: { id: params.id, body } });
+  const supa = admin();
+  const id = params.id;
+
+  // load comment with project + author
+  const { data: row, error: selErr } = await supa
+    .from("comments")
+    .select("id,project_id,user_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  // allow if author or project owner
+  if (row.user_id !== user.id) {
+    const { data: proj } = await supa
+      .from("projects")
+      .select("owner")
+      .eq("id", row.project_id)
+      .maybeSingle();
+    if (!proj || proj.owner !== user.id) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  }
+
+  const { error: delErr } = await supa.from("comments").delete().eq("id", id);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

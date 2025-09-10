@@ -1,52 +1,69 @@
 // app/api/projects/[id]/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
-const noStore = { "Cache-Control": "no-store, max-age=0" };
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!; // server-only
+  return createAdminClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const supa = createClient();
-  const { data: { user } } = await supa.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: noStore });
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const supa = admin();
+
+  // Require logged-in user (read cookie session)
+  const userClient = createClient();
+  const { data: auth } = await userClient.auth.getUser();
+  const user = auth?.user ?? null;
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const projectId = params.id;
 
-  // Permission: owner or editor of this project
-  const { data: owned } = await supa
+  // Load project & verify ownership (owner can delete the project)
+  const { data: proj, error: selErr } = await supa
     .from("projects")
-    .select("id")
+    .select("id, owner, name, origin")
     .eq("id", projectId)
-    .eq("owner", user.id)
     .maybeSingle();
 
-  let allowed = !!owned;
+  if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
+  if (!proj) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (proj.owner !== user.id)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  if (!allowed) {
-    const { data: member } = await supa
-      .from("memberships")
-      .select("role")
-      .eq("project_id", projectId)
-      .eq("user_id", user.id)
-      .in("role", ["owner", "editor"])
-      .maybeSingle();
-    allowed = !!member;
-  }
+  // Delete children first (if you don't have ON DELETE CASCADE)
+  const { error: delCommentsErr } = await supa
+    .from("comments")
+    .delete()
+    .eq("project_id", projectId);
+  if (delCommentsErr)
+    return NextResponse.json({ error: delCommentsErr.message }, { status: 500 });
 
-  if (!allowed) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403, headers: noStore });
-  }
+  const { error: delMembersErr } = await supa
+    .from("memberships")
+    .delete()
+    .eq("project_id", projectId);
+  if (delMembersErr)
+    return NextResponse.json({ error: delMembersErr.message }, { status: 500 });
 
-  // Try child deletes first (in case you don't have ON DELETE CASCADE)
-  await supa.from("comments").delete().eq("project_id", projectId);
-  await supa.from("memberships").delete().eq("project_id", projectId);
+  // Finally delete project
+  const { error: delProjectErr } = await supa
+    .from("projects")
+    .delete()
+    .eq("id", projectId);
+  if (delProjectErr)
+    return NextResponse.json({ error: delProjectErr.message }, { status: 500 });
 
-  const { error: delErr } = await supa.from("projects").delete().eq("id", projectId);
-  if (delErr) {
-    return NextResponse.json({ error: delErr.message }, { status: 403, headers: noStore });
-  }
-
-  return NextResponse.json({ ok: true }, { headers: noStore });
+  return NextResponse.json({ ok: true });
 }
