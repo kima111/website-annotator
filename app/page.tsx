@@ -1,15 +1,147 @@
-export default function Home(){
+// app/page.tsx
+import Link from "next/link";
+import { createClient } from "@/lib/supabaseServer";
+import DeleteProjectButton from "@/components/DeleteProjectButton";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+type Project = {
+  id: string;
+  name: string | null;
+  origin: string | null;
+  created_at: string | null;
+  updated_at?: string | null;
+};
+
+export default async function Home() {
+  const supa = createClient();
+  const { data: auth } = await supa.auth.getUser();
+  const user = auth?.user ?? null;
+
+  let projects: Project[] = [];
+  if (user) {
+    const tryUpdated = await supa
+      .from("projects")
+      .select("id,name,origin,created_at,updated_at")
+      .order("updated_at", { ascending: false });
+    if (tryUpdated.error) {
+      const fallback = await supa
+        .from("projects")
+        .select("id,name,origin,created_at")
+        .order("created_at", { ascending: false });
+      projects = fallback.data ?? [];
+    } else {
+      projects = tryUpdated.data ?? [];
+    }
+  }
+
   return (
     <main className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-2 text-center pb-8">No‑install Website Markup</h1>
-      <p className="text-neutral-300 mb-6">Open any public URL, drop pins, discuss, and export actionable changes — without adding a script to the target site.</p><br />
-      <p className="text-neutral-400 mb-6 text-xs">To get started, enter a Fully Qualified Domain Name / URL below e.g. https://www.example.com</p>
+      <h1 className="text-3xl font-bold mb-2 text-center pb-8">
+        No-install Website Markup
+      </h1>
+
+      <p className="text-neutral-300 mb-6">
+        Open any public URL, drop pins, discuss, and export actionable changes — without
+        adding a script to the target site.
+      </p>
+
+      <p className="text-neutral-400 mb-6 text-xs">
+        To get started, enter a Fully Qualified Domain Name / URL below e.g. https://www.example.com
+      </p>
+
+      {/* Start new annotation session */}
       <form action="/annotate/view" method="get" className="flex gap-2">
-        <input name="url" placeholder="https://example.com" className="flex-1 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
-        <button className="rounded-lg bg-sky-400 text-black px-4 py-2 font-medium">Annotate</button>
+        <input
+          name="url"
+          placeholder="https://example.com"
+          className="flex-1 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"
+        />
+        <button className="rounded-lg bg-sky-400 text-black px-4 py-2 font-medium">
+          Annotate
+        </button>
       </form>
+
+      <div className="mt-4 flex items-center gap-3">
+        {!user ? (
+          <>
+            <Link
+              href="/login"
+              className="inline-flex items-center rounded-lg px-3 py-2 font-semibold bg-sky-500 text-black hover:bg-sky-400"
+            >
+              Log in
+            </Link>
+            <Link
+              href="/login?mode=signup"
+              className="inline-flex items-center rounded-lg px-3 py-2 font-semibold border border-neutral-700 hover:bg-neutral-900"
+            >
+              Sign up
+            </Link>
+          </>
+        ) : (
+          <>
+            <span className="text-xs text-neutral-500">
+              Signed in as <span className="font-mono">{user.email}</span>
+            </span>
+            <Link
+              href="/logout"
+              className="inline-flex items-center rounded-lg px-3 py-2 font-semibold border border-neutral-700 hover:bg-neutral-900"
+            >
+              Log out
+            </Link>
+          </>
+        )}
+      </div>
+
+      {/* Past projects when signed in */}
+      {user && (
+        <section className="mt-10">
+          <h2 className="text-lg font-semibold mb-3">Your projects</h2>
+
+          {projects.length === 0 ? (
+            <div className="rounded-xl border border-neutral-800 p-6 bg-neutral-950 text-neutral-400 text-sm">
+              No projects yet. Paste a URL above to start.
+            </div>
+          ) : (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {projects.map((p) => {
+                const title = p.name || p.origin || "Untitled project";
+                const annotateHref =
+                  `/annotate/view?project=${encodeURIComponent(p.id)}` +
+                  (p.origin ? `&url=${encodeURIComponent(p.origin)}` : "");
+                return (
+                  <li
+                    key={p.id}
+                    className="rounded-xl border border-neutral-800 bg-neutral-950 hover:bg-neutral-900 transition"
+                  >
+                    <div className="p-4">
+                      <div className="text-base font-semibold">{title}</div>
+                      <div className="text-xs text-neutral-500 mt-1">
+                        {p.origin || "—"}
+                      </div>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        {/* Primary action is now Annotate (replaces Open) */}
+                        <Link
+                          href={annotateHref}
+                          className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-semibold bg-sky-500 text-black hover:bg-sky-400"
+                        >
+                          Annotate
+                        </Link>
+                        <DeleteProjectButton id={p.id} name={title} />
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
       <div className="mt-10 text-xs text-neutral-500">
-        By using this tool you agree to proxy the requested page for review purposes and respect third‑party Terms of Service.
+        By using this tool you agree to proxy the requested page for review purposes and
+        respect third-party Terms of Service.
       </div>
     </main>
   );

@@ -1,67 +1,68 @@
 // app/api/projects/ensure/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabaseServer';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabaseServer";
 
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+const noStore = { "Cache-Control": "no-store, max-age=0" };
 
-function originOf(raw: string) {
-  try { const u = new URL(raw); return `${u.protocol}//${u.hostname}`; }
-  catch { return null; }
+function normalizeOrigin(raw: string) {
+  const u = new URL(raw);
+  const host = u.hostname.replace(/^www\./, "").toLowerCase();
+  return `${u.protocol}//${host}`; // e.g. https://example.com
 }
 
 export async function GET(req: NextRequest) {
   const supa = createClient();
   const { data: { user } } = await supa.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: noStore });
 
-  const urlParam = req.nextUrl.searchParams.get('url') || '';
-  const projectParam = req.nextUrl.searchParams.get('project') || '';
-  const origin = urlParam ? originOf(urlParam) : null;
+  const sp = req.nextUrl.searchParams;
+  const projectId = sp.get("project");
+  const url = sp.get("url");
 
-  try {
-    if (projectParam) {
-      const { data: proj, error } = await supa
-        .from('projects')
-        .select('id,name,origin,share_token,owner')
-        .eq('id', projectParam)
-        .single();
-      if (error) return NextResponse.json({ error: error.message }, { status: 403 });
-
-      const role = proj.owner === user.id ? 'owner' : 'viewer';
-      await supa.from('memberships').upsert({ project_id: proj.id, user_id: user.id, role });
-
-      return NextResponse.json({ project: { id: proj.id, name: proj.name, origin: proj.origin, share_token: proj.share_token } });
-    }
-
-    if (!origin) return NextResponse.json({ error: 'bad url' }, { status: 400 });
-
-    const { data: existing, error: selErr } = await supa
-      .from('projects')
-      .select('id,name,origin,share_token')
-      .eq('owner', user.id)
-      .eq('origin', origin)
+  // 1) direct by project id (validate access)
+  if (projectId) {
+    const { data: project, error } = await supa
+      .from("projects")
+      .select("id, name, origin, owner")
+      .eq("id", projectId)
       .maybeSingle();
 
-    if (selErr?.message) return NextResponse.json({ error: selErr.message }, { status: 403 });
+    if (error || !project) return NextResponse.json({ error: "not found" }, { status: 404, headers: noStore });
 
-    if (existing) {
-      await supa.from('memberships').upsert({ project_id: existing.id, user_id: user.id, role: 'owner' });
-      return NextResponse.json({ project: existing });
-    }
+    // optional: ensure membership exists for current user
+    await supa.from("memberships").upsert(
+      { project_id: project.id, user_id: user.id, role: "owner" },
+      { onConflict: "project_id,user_id" }
+    );
 
-    const name = new URL(origin).hostname;
-    const { data: created, error: insErr } = await supa
-      .from('projects')
-      .insert({ owner: user.id, name, origin })
-      .select('id,name,origin,share_token')
-      .single();
-
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 403 });
-
-    await supa.from('memberships').upsert({ project_id: created.id, user_id: user.id, role: 'owner' });
-    return NextResponse.json({ project: created });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'internal error' }, { status: 500 });
+    return NextResponse.json({ project }, { headers: noStore });
   }
+
+  // 2) by URL (ensure one project per owner+origin)
+  if (!url) return NextResponse.json({ error: "url required" }, { status: 400, headers: noStore });
+
+  let origin: string;
+  try { origin = normalizeOrigin(url); } catch { return NextResponse.json({ error: "bad url" }, { status: 400, headers: noStore }); }
+
+  // UPSERT: requires unique index on (owner, origin)
+  const { data: project, error } = await supa
+    .from("projects")
+    .upsert(
+      { owner: user.id, origin, name: null },
+      { onConflict: "owner,origin" }
+    )
+    .select("id, name, origin, owner")
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 403, headers: noStore });
+
+  // ensure membership exists
+  await supa.from("memberships").upsert(
+    { project_id: project.id, user_id: user.id, role: "owner" },
+    { onConflict: "project_id,user_id" }
+  );
+
+  return NextResponse.json({ project }, { headers: noStore });
 }

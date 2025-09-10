@@ -159,28 +159,41 @@ function showAuthBanner(){
   root.appendChild(d);
 }
 
-// ---------- network / data ----------
+let ensureInFlight = null;
+
 async function ensureProject(){
-  try{
-    const endpoint = state.forwardedProject
-      ? `/api/projects/ensure?project=${encodeURIComponent(state.forwardedProject)}`
-      : `/api/projects/ensure?url=${encodeURIComponent(state.url)}`;
+  if (state.projectId) return state.projectId;
+  if (ensureInFlight) return ensureInFlight;
 
-    const r = await fetch(endpoint, { cache: 'no-store', credentials: 'include' });
-    if (r.status === 401) { showAuthBanner(); toast('Please log in to load/save annotations.'); return; }
+  const sp = new URLSearchParams(window.location.search);
+  const forwarded = state.forwardedProject || sp.get('project') || '';
+  const endpoint = forwarded
+    ? `/api/projects/ensure?project=${encodeURIComponent(forwarded)}`
+    : `/api/projects/ensure?url=${encodeURIComponent(state.url)}`;
 
-    const js = await r.json().catch(()=>null);
-    if (!r.ok) { toast(js?.error || `Project ensure failed (${r.status})`); return; }
+  ensureInFlight = (async () => {
+    try{
+      const r = await fetch(endpoint, { cache: 'no-store', credentials: 'include', headers: { 'accept': 'application/json' } });
+      if (r.status === 401) { showAuthBanner(); return null; }
+      const js = await r.json().catch(()=>null);
+      if (!r.ok) { toast(js?.error || `Project ensure failed (${r.status})`); return null; }
+      state.projectId = js?.project?.id || null;
+      return state.projectId;
+    } finally {
+      // tiny microtask delay so concurrent callers all await the same promise before we clear it
+      setTimeout(() => { ensureInFlight = null; }, 0);
+    }
+  })();
 
-    state.projectId = js?.project?.id || null;
-  } catch { toast('Project ensure error'); }
+  return ensureInFlight;
 }
 
 async function loadPins(){
-  if(!state.projectId){
+  if (!state.projectId) {
     await ensureProject();
-    if(!state.projectId) return;
+    if (!state.projectId) return;
   }
+  // ...rest unchanged...
   try{
     const res = await fetch(
       `/api/comments?project_id=${encodeURIComponent(state.projectId)}&url=${encodeURIComponent(state.url)}`,
