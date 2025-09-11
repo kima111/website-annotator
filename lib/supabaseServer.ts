@@ -20,10 +20,9 @@ export function createClientRSC<DB = any>() {
   );
 }
 
-// Writeable client for Route Handlers / Server Actions
+// Writable client for Route Handlers / Server Actions
 export function createClient<DB = any>() {
   const cookieStore = cookies();
-  const cookieDomain = process.env.AUTH_COOKIE_DOMAIN || undefined;
   return createServerClient<DB>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -34,14 +33,12 @@ export function createClient<DB = any>() {
         },
         set(name: string, value: string, options?: CookieOptions) {
           try {
-            const o = { ...(options||{}), ...(cookieDomain ? { domain: cookieDomain } : {}) } as CookieOptions;
-            cookieStore.set({ name, value, ...o });
+            cookieStore.set({ name, value, ...(options || {}) });
           } catch {}
         },
         remove(name: string, options?: CookieOptions) {
           try {
-            const o = { ...(options||{}), ...(cookieDomain ? { domain: cookieDomain } : {}) } as CookieOptions;
-            cookieStore.set({ name, value: "", ...o, expires: new Date(0) });
+            cookieStore.set({ name, value: "", ...(options || {}), expires: new Date(0) });
           } catch {}
         },
       },

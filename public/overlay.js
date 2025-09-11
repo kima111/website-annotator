@@ -177,14 +177,20 @@ async function ensureProject(){
 
   ensureInFlight = (async () => {
     try{
-      const r = await fetch(endpoint, {
+      const params = new URLSearchParams();
+      params.set('url', state.url);
+      if (state.forwardedProject) {
+        params.set('project', state.forwardedProject);
+      }
+      const res = await fetch(`/api/projects/ensure?${params.toString()}`, {
+        method: 'GET',
+        headers: API_HEADERS,
         cache: 'no-store',
-        credentials: 'include',
-        headers: API_HEADERS
+        credentials: 'include', // ensure auth cookies are sent
       });
-      if (r.status === 401) { showAuthBanner(); return null; }
-      const js = await safeJson(r).catch(()=>null);
-      if (!r.ok) { toast(js?.error || `Project ensure failed (${r.status})`); return null; }
+      if (res.status === 401) { showAuthBanner(); return null; }
+      const js = await safeJson(res).catch(()=>null);
+      if (!res.ok) { toast(js?.error || `Project ensure failed (${res.status})`); return null; }
       state.projectId = js?.project?.id || null;
       return state.projectId;
     } catch {
@@ -204,10 +210,12 @@ async function loadPins(){
     if (!state.projectId) return;
   }
   try{
-    const res = await fetch(
-      `/api/comments?project_id=${encodeURIComponent(state.projectId)}&url=${encodeURIComponent(state.url)}&ts=${Date.now()}`,
-      { headers: API_HEADERS, credentials: 'include', cache: 'no-store' }
-    );
+    const { projectId, url } = state;
+    const res = await fetch(`/api/comments?project_id=${encodeURIComponent(projectId)}&url=${encodeURIComponent(url)}`, {
+      headers: API_HEADERS,
+      cache: 'no-store',
+      credentials: 'include', // ensure auth cookies are sent
+    });
     if(res.status===401){ showAuthBanner(); return; }
     if(res.status===403){ toast('No permission to view pins for this project.'); return; }
     const js = await safeJson(res).catch(()=>null);
@@ -231,11 +239,11 @@ async function savePin(pin){
     }
     const payload = { ...pin, project_id: state.projectId, url: state.url };
     const res = await fetch('/api/comments', {
-      method:'POST',
+      method: 'POST',
       headers: API_JSON_HEADERS,
-      credentials: 'include',
+      body: JSON.stringify(payload),
       cache: 'no-store',
-      body: JSON.stringify(payload)
+      credentials: 'include', // ensure auth cookies are sent
     });
     if(res.status===401){ showAuthBanner(); return false; }
     if(res.status===403){
@@ -255,11 +263,11 @@ async function savePin(pin){
 
 async function removePin(id){
   try {
-    const res = await fetch(`/api/comments/${id}?ts=${Date.now()}`, {
-      method:'DELETE',
-      credentials: 'include',
+    const res = await fetch(`/api/comments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: API_HEADERS,
       cache: 'no-store',
-      headers: API_HEADERS
+      credentials: 'include', // ensure auth cookies are sent
     });
     if(res.status===401){ showAuthBanner(); return false; }
     if(res.status===403){
