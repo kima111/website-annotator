@@ -21,10 +21,13 @@ export default function InvitePage({ params, searchParams }: any){
 
   async function join(){
     setStatus('joining'); setErr(undefined);
-    const r = await fetch('/api/projects/join', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ project_id: projectId, token })
-    });
+    const r = await fetch('/api/projects/invite', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  credentials: 'include', // NEW
+  body: JSON.stringify({ project_id: projectId })
+});
+
     if (!r.ok) { const js = await r.json().catch(()=>({})); setErr(js.error || 'Failed to join'); setStatus('err'); return; }
     setStatus('ok');
     // redirect to viewer with the project's origin if possible

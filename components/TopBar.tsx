@@ -23,23 +23,30 @@ export default function TopBar(){
   }, []);
 
   // Ensure a project for this URL (or use the one in the query)
-  useEffect(()=>{
-    let cancelled = false;
-    async function run(){
-      if (!url) return;
-      try{
-        const endpoint = initialProject
-          ? `/api/projects/ensure?project=${encodeURIComponent(initialProject)}`
-          : `/api/projects/ensure?url=${encodeURIComponent(url)}`;
-        const r = await fetch(endpoint, { cache: 'no-store' });
-        if(!r.ok) return;
-        const js = await r.json();
-        if(!cancelled) setProjectId(js?.project?.id);
-      } catch {}
+// Ensure a project for this URL (or use the one in the query)
+useEffect(() => {
+  let cancelled = false;
+  async function run() {
+    if (!url) return;
+
+    // NEW: if a project id was supplied, just adopt it and bail — avoid extra /ensure calls
+    if (initialProject) {
+      if (!cancelled) setProjectId(initialProject);
+      return;
     }
-    run();
-    return ()=>{ cancelled = true; };
-  }, [url, initialProject]);
+
+    try {
+      const endpoint = `/api/projects/ensure?url=${encodeURIComponent(url)}`;
+      const r = await fetch(endpoint, { cache: 'no-store', credentials: 'include' }); // NEW: credentials
+      if (!r.ok) return;
+      const js = await r.json();
+      if (!cancelled) setProjectId(js?.project?.id);
+    } catch {}
+  }
+  run();
+  return () => { cancelled = true; };
+}, [url, initialProject]);
+
 
   const loginHref = useMemo(() => {
     if (typeof window === 'undefined') return '/login';
