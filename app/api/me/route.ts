@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const supa = createClient();           // WRITEABLE server client
+  const supa = createClient();
   const { data, error } = await supa.auth.getUser();
   return NextResponse.json({
     user: data?.user ?? null,

@@ -3,26 +3,38 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs"; // cookie write path works only on Node
+export const runtime = "nodejs"; // cookie writes require Node runtime
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") ?? "/";
-  const debug = url.searchParams.get("debug"); // add &debug=1 to see JSON
+  const debug = url.searchParams.get("debug");
 
-  let err: string | null = null;
+  const code = url.searchParams.get("code");
+  const token_hash = url.searchParams.get("token_hash");
+  const type = url.searchParams.get("type") as
+    | "magiclink"
+    | "recovery"
+    | "invite"
+    | "email_change"
+    | "signup"
+    | null;
+
+  const supa = createClient();
+  let errorMsg: string | null = null;
+
   if (code) {
-    const supa = createClient(); // WRITEABLE server client (not RSC)
     const { error } = await supa.auth.exchangeCodeForSession(code);
-    err = error?.message ?? null;
+    errorMsg = error?.message ?? null;
+  } else if (token_hash && type) {
+    const { error } = await supa.auth.verifyOtp({ token_hash, type });
+    errorMsg = error?.message ?? null;
   } else {
-    err = "missing code";
+    errorMsg = "missing code/token_hash";
   }
 
   if (debug) {
-    // Temporarily returns JSON so you can see if the exchange failed
-    return NextResponse.json({ ok: !err, error: err, origin: url.origin, next });
+    return NextResponse.json({ ok: !errorMsg, error: errorMsg, origin: url.origin, next });
   }
 
   return NextResponse.redirect(`${url.origin}${next}`);
