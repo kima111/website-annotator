@@ -2,14 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const dest = `${url.origin}/`;
-  const html = `<!doctype html><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script>`;
-  const res = new NextResponse(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
-
+export async function POST() {
+  const res = NextResponse.json({ ok: true });
   const jar = cookies();
   const supa = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +19,6 @@ export async function GET(request: Request) {
       },
     }
   );
-
   await supa.auth.signOut();
   return res;
 }
