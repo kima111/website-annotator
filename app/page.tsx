@@ -92,7 +92,7 @@ export default async function Home() {
               Log in
             </Link>
             <Link
-              href="/login?mode=signup"
+              href="/signup" // CHANGED: go to the dedicated signup page
               className="inline-flex items-center rounded-lg px-3 py-2 font-semibold border border-neutral-700 hover:bg-neutral-900"
             >
               Sign up

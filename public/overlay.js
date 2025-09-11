@@ -140,7 +140,16 @@ function showAuthBanner(){
   const d = document.createElement('div');
   d.id = 'authwarn';
   d.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);background:#7c2d12;color:#fff;border:1px solid #b45309;border-radius:10px;padding:6px 10px;font:600 12px system-ui;z-index:2147483647;pointer-events:auto';
-  d.innerHTML = 'Please <a href="/login" target="_top" style="color:#7dd3fc">log in</a> to load and save annotations.';
+  // Build a next param that points back to the top-level /annotate/view page
+  let href = '/login';
+  try {
+    const topLoc = window.top && window.top.location;
+    if (topLoc) {
+      const next = encodeURIComponent((topLoc.pathname || '/') + (topLoc.search || ''));
+      href = `/login?next=${next}`;
+    }
+  } catch {}
+  d.innerHTML = `Please <a href="${href}" target="_top" style="color:#7dd3fc">log in</a> to load and save annotations.`;
   root.appendChild(d);
 }
 
