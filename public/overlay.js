@@ -78,6 +78,7 @@ try { const fb = document.getElementById('__annotator_boot_pill'); if (fb) fb.re
 
 // Mark ready as soon as the bar is attached (proxy stops reinjecting)
 window.__ANNOTATOR_READY__ = true;
+window.__ANNOTATOR_STATE__ = state; // handy for debugging in console
 
 const $pins  = root.getElementById('pins');
 const $panel = root.getElementById('panel');
@@ -147,6 +148,13 @@ function showAuthBanner(){
 const API_HEADERS = { accept: 'application/json', 'x-annotator': '1' };
 const API_JSON_HEADERS = { ...API_HEADERS, 'content-type': 'application/json' };
 
+// small helper: try to JSON-parse only if the response is JSON
+async function safeJson(res){
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return res.json();
+  return null;
+}
+
 let ensureInFlight = null;
 
 async function ensureProject(){
@@ -166,10 +174,13 @@ async function ensureProject(){
         headers: API_HEADERS
       });
       if (r.status === 401) { showAuthBanner(); return null; }
-      const js = await r.json().catch(()=>null);
+      const js = await safeJson(r).catch(()=>null);
       if (!r.ok) { toast(js?.error || `Project ensure failed (${r.status})`); return null; }
       state.projectId = js?.project?.id || null;
       return state.projectId;
+    } catch {
+      toast('Project ensure error');
+      return null;
     } finally {
       setTimeout(() => { ensureInFlight = null; }, 0);
     }
@@ -190,7 +201,7 @@ async function loadPins(){
     );
     if(res.status===401){ showAuthBanner(); return; }
     if(res.status===403){ toast('No permission to view pins for this project.'); return; }
-    const js = await res.json().catch(()=>null);
+    const js = await safeJson(res).catch(()=>null);
     if(!res.ok){ toast(js?.error || `Failed to load pins (${res.status})`); return; }
 
     const rows = js?.data || [];
@@ -212,19 +223,19 @@ async function savePin(pin){
     const payload = { ...pin, project_id: state.projectId, url: state.url };
     const res = await fetch('/api/comments', {
       method:'POST',
-      headers: API_JSON_HEADERS,   // ⬅ content-type + x-annotator
+      headers: API_JSON_HEADERS,
       credentials: 'include',
       cache: 'no-store',
       body: JSON.stringify(payload)
     });
     if(res.status===401){ showAuthBanner(); return false; }
     if(res.status===403){
-      const j = await res.json().catch(()=>null);
+      const j = await safeJson(res).catch(()=>null);
       toast(j?.error || 'No permission to save on this project.');
       return false;
     }
     if(!res.ok){
-      const j = await res.json().catch(()=>null);
+      const j = await safeJson(res).catch(()=>null);
       toast(j?.error || `Save failed (${res.status})`);
       return false;
     }
@@ -239,16 +250,16 @@ async function removePin(id){
       method:'DELETE',
       credentials: 'include',
       cache: 'no-store',
-      headers: API_HEADERS   // ⬅ x-annotator + accept
+      headers: API_HEADERS
     });
     if(res.status===401){ showAuthBanner(); return false; }
     if(res.status===403){
-      const j = await res.json().catch(()=>null);
+      const j = await safeJson(res).catch(()=>null);
       toast(j?.error || 'No permission to delete pin.');
       return false;
     }
     if(!res.ok){
-      const j = await res.json().catch(()=>null);
+      const j = await safeJson(res).catch(()=>null);
       toast(j?.error || `Delete failed (${res.status})`);
       return false;
     }
@@ -372,15 +383,16 @@ root.getElementById('addpin').addEventListener('click', ()=>{
     const ox = docX - (rect.left + window.scrollX);
     const oy = docY - (rect.top  + window.scrollY);
     const bbox = { x: rect.x, y: rect.y, w: rect.width, h: rect.height, ox, oy };
-    const pin = { id: crypto.randomUUID(), selector: sel, x: docX, y: docY, bbox, comment:'', status:'open', ts:Date.now(), url: state.url };
+    const id = (crypto && typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+    const pin = { id, selector: sel, x: docX, y: docY, bbox, comment:'', status:'open', ts:Date.now(), url: state.url };
     state.pins.push(pin);
     refresh();
     document.removeEventListener('click', on, true);
-    host.style.pointerEvents = 'auto'; // re-enable toolbar/panel clicks
+    host.style.pointerEvents = 'auto'; // allow toolbar/panel clicks
   };
   const cancel = ()=>{
     document.removeEventListener('click', on, true);
-    host.style.pointerEvents = 'auto'; // re-enable toolbar/panel clicks
+    host.style.pointerEvents = 'auto'; // allow toolbar/panel clicks
   }
   document.addEventListener('click', on, true);
 });

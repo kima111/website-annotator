@@ -1,21 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabaseServer';
+// app/auth/callback/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabaseServer";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export async function GET(req: NextRequest){
-  const code = req.nextUrl.searchParams.get('code');
-  const next = req.nextUrl.searchParams.get('next') || '/';
-  const supa = createClient();
-
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const next = url.searchParams.get("next") ?? "/";
   if (code) {
-    const { error } = await supa.auth.exchangeCodeForSession(code);
-    if (error) {
-      const u = new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url);
-      return NextResponse.redirect(u);
-    }
+    const supa = createClient(); // server writeable client
+    await supa.auth.exchangeCodeForSession(code);
   }
-
-  const dest = new URL(next, req.url);
-  return NextResponse.redirect(dest);
+  return NextResponse.redirect(`${url.origin}${next}`);
 }
