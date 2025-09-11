@@ -15,10 +15,13 @@ export async function GET(request: Request) {
   const type = url.searchParams.get("type") as
     | "magiclink" | "recovery" | "invite" | "email_change" | "signup" | null;
 
-  // Use an HTML 200 + JS redirect so Set-Cookie cannot be dropped by intermediaries
+  // HTML 200 + JS redirect so Set-Cookie isn't dropped by intermediaries
   const dest = `${url.origin}${next}`;
   const html = `<!doctype html><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script>`;
-  const res = new NextResponse(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  const res = new NextResponse(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 
   const cookieStore = cookies();
   const supa = createServerClient(
@@ -30,10 +33,10 @@ export async function GET(request: Request) {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options?: CookieOptions) {
-          res.cookies.set({ name, value, ...options });
+          res.cookies.set({ name, value, ...(options || {}) });
         },
         remove(name: string, options?: CookieOptions) {
-          res.cookies.set({ name, value: "", ...options, expires: new Date(0) });
+          res.cookies.set({ name, value: "", ...(options || {}), expires: new Date(0) });
         },
       },
     }
@@ -41,21 +44,12 @@ export async function GET(request: Request) {
 
   if (code) {
     const { error } = await supa.auth.exchangeCodeForSession(code);
-    if (error) {
-      const errHtml = `<!doctype html><title>Auth Error</title><pre>Auth exchange failed: ${
-        (error as any)?.message || String(error)
-      }</pre>`;
-      return new NextResponse(errHtml, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
-    }
+    if (error) console.error(error);
   } else if (token_hash && type) {
     const { error } = await supa.auth.verifyOtp({ token_hash, type });
-    if (error) {
-      const errHtml = `<!doctype html><title>Auth Error</title><pre>OTP verification failed: ${
-        (error as any)?.message || String(error)
-      }</pre>`;
-      return new NextResponse(errHtml, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
-    }
+    if (error) console.error(error);
   }
+
   return res;
 }
 
