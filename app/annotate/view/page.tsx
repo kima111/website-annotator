@@ -1,10 +1,12 @@
 // app/annotate/view/page.tsx
 import TopBar from "@/components/TopBar";
-import FrameWithOverlay from "./FrameWithOverlay"; // ⬅️ new client component below
+import FrameWithOverlay from "./FrameWithOverlay";
 import Link from "next/link";
-import { createClientRSC } from "@/lib/supabaseServer";
+import { createClient } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export default async function View({
   searchParams,
@@ -14,8 +16,7 @@ export default async function View({
   const url = searchParams.url ?? "";
   const project = searchParams.project ?? "";
 
-  // Require login before rendering the annotator
-  const supa = createClientRSC();
+  const supa = createClient();
   const { data: auth } = await supa.auth.getUser();
   const user = auth?.user ?? null;
 
@@ -23,9 +24,7 @@ export default async function View({
     const qp = new URLSearchParams();
     if (url) qp.set("url", url);
     if (project) qp.set("project", project);
-    const next = `/annotate/view${
-      qp.toString() ? `?${qp.toString()}` : ""
-    }`;
+    const next = `/annotate/view${qp.toString() ? `?${qp.toString()}` : ""}`;
     return (
       <div className="flex min-h-dvh items-center justify-center p-6">
         <div className="max-w-md w-full rounded-xl border border-neutral-800 bg-neutral-950 p-6 text-center">

@@ -1,29 +1,33 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabaseServer";
+import { createServerClient } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
   const jar = cookies();
-  const all = jar.getAll?.() ?? [];
-  const allNames = Array.isArray(all) ? all.map((c: any) => c.name) : [];
-  const cookieSnapshot = Object.fromEntries(
-    [
-      "sb-access-token",
-      "sb-refresh-token",
-      "supabase-auth-token",
-      "sb:token",
-    ].map((k) => [k, jar.get(k)?.value ? "present" : "-"])
+  const supa = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get: (n) => jar.get(n)?.value,
+        set: () => {},
+        remove: () => {},
+      },
+    }
   );
 
-  const supa = createClient();
-  const { data, error } = await supa.auth.getUser();
-  return NextResponse.json({
-    cookies: cookieSnapshot,
-    allCookieNames: allNames,
-    user: data?.user ?? null,
-    error: error?.message ?? null,
-  });
+  const { data: auth, error } = await supa.auth.getUser();
+  const hasAT = !!jar.get("sb-access-token");
+  const hasRT = !!jar.get("sb-refresh-token");
+  return NextResponse.json(
+    {
+      user: auth?.user ?? null,
+      error: error?.message ?? null,
+      cookies: { access: hasAT, refresh: hasRT },
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }

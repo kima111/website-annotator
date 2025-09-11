@@ -9,24 +9,23 @@ export function middleware(req: NextRequest) {
   const accept = req.headers.get("accept") || "";
   const path = req.nextUrl.pathname;
 
-  // Only redirect real page navigations (GET + Accept: text/html) and skip auth/api
+  // Only redirect real page navigations (GET + Accept: text/html)
   const isHtmlNav =
     req.method === "GET" &&
     accept.includes("text/html") &&
     !path.startsWith("/_next") &&
     !/\.[a-z0-9]+$/i.test(path) &&
+    // never redirect these
     !path.startsWith("/api") &&
-    !path.startsWith("/auth");
+    !path.startsWith("/auth") &&
+    !path.startsWith("/annotate");
 
   if (isProd && CANONICAL && host && host !== CANONICAL && isHtmlNav) {
     const url = new URL(req.url);
     url.host = CANONICAL;
     return NextResponse.redirect(url, 308);
   }
-
   return NextResponse.next();
 }
 
-export const config = {
-  matcher: ["/((?!_next|.*\\..*).*)"],
-};
+export const config = { matcher: ["/((?!_next|.*\\..*).*)"] };
