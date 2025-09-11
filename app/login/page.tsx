@@ -16,7 +16,8 @@ export default function LoginPage(){
     e.preventDefault();
     setErr(null);
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const redirect = `${origin}/auth/callback?next=${encodeURIComponent(nextParam)}`;
+    const base = process.env.NEXT_PUBLIC_BASE_URL || origin;
+    const redirect = `${base}/auth/callback?next=${encodeURIComponent(nextParam)}`;
     const { error } = await supabaseBrowser.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirect }

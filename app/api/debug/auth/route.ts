@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const jar = cookies();
+  const all = jar.getAll?.() ?? [];
+  const allNames = Array.isArray(all) ? all.map((c: any) => c.name) : [];
   const cookieSnapshot = Object.fromEntries(
     [
       "sb-access-token",
@@ -20,6 +22,7 @@ export async function GET() {
   const { data, error } = await supa.auth.getUser();
   return NextResponse.json({
     cookies: cookieSnapshot,
+    allCookieNames: allNames,
     user: data?.user ?? null,
     error: error?.message ?? null,
   });

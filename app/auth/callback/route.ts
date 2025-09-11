@@ -5,6 +5,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const revalidate = 0;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -39,9 +40,21 @@ export async function GET(request: Request) {
   );
 
   if (code) {
-    await supa.auth.exchangeCodeForSession(code);
+    const { error } = await supa.auth.exchangeCodeForSession(code);
+    if (error) {
+      const errHtml = `<!doctype html><title>Auth Error</title><pre>Auth exchange failed: ${
+        (error as any)?.message || String(error)
+      }</pre>`;
+      return new NextResponse(errHtml, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    }
   } else if (token_hash && type) {
-    await supa.auth.verifyOtp({ token_hash, type });
+    const { error } = await supa.auth.verifyOtp({ token_hash, type });
+    if (error) {
+      const errHtml = `<!doctype html><title>Auth Error</title><pre>OTP verification failed: ${
+        (error as any)?.message || String(error)
+      }</pre>`;
+      return new NextResponse(errHtml, { status: 400, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+    }
   }
   return res;
 }
