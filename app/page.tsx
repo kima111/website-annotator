@@ -143,12 +143,12 @@ export default async function Home() {
                         {p.origin || "—"}
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <Link
-                          href={annotateHref}
-                          className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-semibold bg-sky-500 text-black hover:bg-sky-400"
-                        >
-                          Annotate
-                        </Link>
+                           <Link
+                            href={{ pathname: "/annotate/view", query: { url: p.origin, project: p.id } }}
+                            className="rounded-lg bg-sky-400 text-black px-3 py-1.5 text-sm font-medium"
+                          >
+                            Annotate
+                          </Link>
                         <DeleteProjectButton id={p.id} name={title} />
                       </div>
                     </div>
