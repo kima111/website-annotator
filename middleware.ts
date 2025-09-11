@@ -8,6 +8,7 @@ export function middleware(req: NextRequest) {
   const isProd = process.env.VERCEL_ENV === "production";
   const accept = req.headers.get("accept") || "";
   const path = req.nextUrl.pathname;
+  const hasSession = !!req.cookies.get("sb-access-token") || !!req.cookies.get("sb-refresh-token");
 
   // Only redirect real page navigations (GET + Accept: text/html)
   const isHtmlNav =
@@ -21,9 +22,13 @@ export function middleware(req: NextRequest) {
     !path.startsWith("/annotate");
 
   if (isProd && CANONICAL && host && host !== CANONICAL && isHtmlNav) {
-    const url = new URL(req.url);
-    url.host = CANONICAL;
-    return NextResponse.redirect(url, 308);
+    // Only normalize www <-> apex. Avoid cross-subdomain redirects that would drop cookies.
+    const stripW = (h: string) => h.replace(/^www\./i, "");
+    if (stripW(host) === stripW(CANONICAL) && !hasSession) {
+      const url = new URL(req.url);
+      url.host = CANONICAL;
+      return NextResponse.redirect(url, 308);
+    }
   }
   return NextResponse.next();
 }
