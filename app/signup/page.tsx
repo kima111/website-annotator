@@ -19,18 +19,14 @@ export default function SignupPage(){
     setErr(null); setBusy(true);
     try{
       const r = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
+        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
       const j = await r.json().catch(()=>({}));
       if (!r.ok) { setErr(j.error || 'Signup failed'); return; }
       setOk(true);
       setTimeout(()=>{ window.location.href = nextParam; }, 800);
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   return (

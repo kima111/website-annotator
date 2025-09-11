@@ -1,9 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 
-export default function InvitePage({ params, searchParams }: any){
+export default function InvitePage({ params }: any){
   const projectId = params.project;
-  const token = searchParams?.t || '';
   const [me, setMe] = useState<any>(null);
   const [status, setStatus] = useState<'idle'|'joining'|'ok'|'err'>('idle');
   const [err, setErr] = useState<string|undefined>();
@@ -21,17 +20,17 @@ export default function InvitePage({ params, searchParams }: any){
 
   async function join(){
     setStatus('joining'); setErr(undefined);
-    const r = await fetch('/api/projects/invite', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  credentials: 'include', // NEW
-  body: JSON.stringify({ project_id: projectId })
-});
+    const r = await fetch('/api/projects/join', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ project_id: projectId })
+    });
 
     if (!r.ok) { const js = await r.json().catch(()=>({})); setErr(js.error || 'Failed to join'); setStatus('err'); return; }
     setStatus('ok');
     // redirect to viewer with the project's origin if possible
-    const ensure = await fetch(`/api/projects/ensure?project=${projectId}`, { cache: 'no-store' }).then(r=>r.json()).catch(()=>null);
+  const ensure = await fetch(`/api/projects/ensure?project=${projectId}`, { cache: 'no-store', credentials: 'include' }).then(r=>r.json()).catch(()=>null);
     const origin = ensure?.project?.origin || '';
     const url = origin ? `${origin}/` : 'https://example.com';
     window.location.href = `/annotate/view?url=${encodeURIComponent(url)}&project=${projectId}`;

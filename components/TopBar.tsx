@@ -73,7 +73,7 @@ useEffect(() => {
           ? `/api/projects/ensure?url=${encodeURIComponent(url)}`
           : undefined;
         if (endpoint) {
-          const r = await fetch(endpoint, { cache: 'no-store' });
+          const r = await fetch(endpoint, { cache: 'no-store', credentials: 'include' });
           if (r.ok) {
             const js = await r.json();
             setProjectId(js?.project?.id);
@@ -83,6 +83,7 @@ useEffect(() => {
       if (!projectId) { setErr('No project for this URL yet. Try again.'); return; }
       const r = await fetch('/api/projects/invite', {
         method: 'POST', headers: { 'content-type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ project_id: projectId })
       });
       if(!r.ok){
@@ -90,8 +91,8 @@ useEffect(() => {
         setErr(j.error || 'Unable to create invite. Are you logged in and owner?');
         return;
       }
-      const js = await r.json();
-      setShareUrl(js.join_url);
+  const js = await r.json();
+  setShareUrl(js.invite_url);
     } catch(e:any){
       setErr(e?.message || 'Share failed');
     }

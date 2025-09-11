@@ -30,8 +30,7 @@ async function getUser() {
 
 function makeInviteUrl(req: NextRequest, projectId: string) {
   const base = new URL(req.url).origin;
-  // If you later add tokens/roles, append them here as query params
-  return `${base}/join?project=${encodeURIComponent(projectId)}`;
+  return `${base}/invite/${encodeURIComponent(projectId)}`;
 }
 
 async function ensureOwnerOrMember(projectId: string, userId: string) {
