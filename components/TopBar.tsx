@@ -12,6 +12,7 @@ export default function TopBar(){
   const [projectId, setProjectId] = useState<string | undefined>(initialProject || undefined);
   const [shareUrl, setShareUrl] = useState<string | undefined>();
   const [err, setErr] = useState<string | undefined>();
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -98,6 +99,16 @@ useEffect(() => {
     }
   }, [projectId, url]);
 
+  async function onLogout(){
+    if (logoutBusy) return;
+    setLogoutBusy(true);
+    try {
+      await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' });
+    } catch {}
+    // hard navigate to ensure fresh SSR state
+    window.location.href = '/';
+  }
+
   return (
     <div className="sticky top-0 z-50 w-full bg-neutral-900/70 backdrop-blur border-b border-neutral-800">
       <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-3 p-2">
@@ -116,7 +127,9 @@ useEffect(() => {
         {me ? (
           <div className="flex items-center gap-3 text-sm">
             <span className="text-neutral-300" title={me.email}>{me.email}</span>
-            <a href="/logout" className="text-neutral-400 hover:text-neutral-200">Logout</a>
+            <button onClick={onLogout} disabled={logoutBusy} className="text-neutral-400 hover:text-neutral-200">
+              {logoutBusy ? 'Logging out…' : 'Logout'}
+            </button>
           </div>
         ) : (
           <a href={loginHref} className="text-neutral-400 hover:text-neutral-200 text-sm">Login</a>
