@@ -14,8 +14,10 @@ export async function GET(request: Request) {
   const type = url.searchParams.get("type") as
     | "magiclink" | "recovery" | "invite" | "email_change" | "signup" | null;
 
-  // Prepare the redirect response up-front so we can attach Set-Cookie to it
-  const res = NextResponse.redirect(`${url.origin}${next}`);
+  // Use an HTML 200 + JS redirect so Set-Cookie cannot be dropped by intermediaries
+  const dest = `${url.origin}${next}`;
+  const html = `<!doctype html><meta http-equiv="refresh" content="0;url=${dest}"><script>location.replace(${JSON.stringify(dest)})</script>`;
+  const res = new NextResponse(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
 
   const cookieStore = cookies();
   const supa = createServerClient(
