@@ -57,15 +57,12 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       <div className="text-sm text-neutral-500 mt-1">{proj.origin || "—"}</div>
 
       <div className="mt-6 flex gap-2">
-   <Link
-  href={{
-    pathname: "/annotate/view",
-    query: { url: project.origin, project: project.id },
-  }}
-  className="rounded-lg bg-sky-400 text-black px-3 py-1.5 text-sm font-medium"
->
-  Annotate
-</Link>
+        <Link
+          href={annotateHref}
+          className="inline-flex items-center rounded-lg px-3 py-2 font-semibold bg-sky-500 text-black hover:bg-sky-400"
+        >
+          Annotate
+        </Link>
         <DeleteProjectButton id={proj.id} name={title} />
       </div>
 
