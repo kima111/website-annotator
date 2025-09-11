@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 export default function SignupPage(){
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
   const [ok, setOk] = useState(false);
@@ -16,10 +17,14 @@ export default function SignupPage(){
 
   async function onSignup(e: React.FormEvent){
     e.preventDefault();
-    setErr(null); setBusy(true);
+    setErr(null);
+    if (password !== confirm) { setErr('Passwords do not match'); return; }
+    setBusy(true);
     try{
       const r = await fetch('/api/auth/signup', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include',
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
       const j = await r.json().catch(()=>({}));
@@ -38,6 +43,7 @@ export default function SignupPage(){
         <form className="space-y-3" onSubmit={onSignup}>
           <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
           <input type="password" required minLength={6} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Create a password" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
+          <input type="password" required minLength={6} value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Confirm password" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
           <button disabled={busy} className="rounded-lg bg-sky-400 text-black px-4 py-2 font-medium">{busy ? 'Creating…' : 'Sign up'}</button>
         </form>
       )}

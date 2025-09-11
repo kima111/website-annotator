@@ -1,12 +1,11 @@
 'use client';
 import { useMemo, useState } from 'react';
 
-export default function SignupPage(){
+export default function LoginPage(){
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string|null>(null);
-  const [ok, setOk] = useState(false);
 
   const nextParam = useMemo(() => {
     if (typeof window === 'undefined') return '/';
@@ -14,20 +13,22 @@ export default function SignupPage(){
     return sp.get('next') || '/';
   }, []);
 
-  async function onSignup(e: React.FormEvent){
+  async function onSignin(e: React.FormEvent){
     e.preventDefault();
     setErr(null); setBusy(true);
     try{
-      const r = await fetch('/api/auth/signup', {
+      const r = await fetch('/api/auth/signin', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email, password }),
       });
-      const j = await r.json().catch(()=>({}));
-      if (!r.ok) { setErr(j.error || 'Signup failed'); return; }
-      setOk(true);
-      setTimeout(()=>{ window.location.href = nextParam; }, 800);
+      if (!r.ok) {
+        const j = await r.json().catch(()=>({}));
+        setErr(j.error || 'Login failed');
+        return;
+      }
+      window.location.href = nextParam;
     } finally {
       setBusy(false);
     }
@@ -35,18 +36,16 @@ export default function SignupPage(){
 
   return (
     <main className="max-w-md mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Create account</h1>
-      {ok ? (
-        <div className="text-sm text-neutral-300">Check your inbox to confirm your email, then continue.</div>
-      ) : (
-        <form className="space-y-3" onSubmit={onSignup}>
-          <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
-          <input type="password" required minLength={6} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Create a password" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
-          <button disabled={busy} className="rounded-lg bg-sky-400 text-black px-4 py-2 font-medium">{busy ? 'Creating…' : 'Sign up'}</button>
-        </form>
-      )}
+      <h1 className="text-2xl font-bold mb-4">Sign in</h1>
+      <form className="space-y-3" onSubmit={onSignin}>
+        <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
+        <input type="password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
+        <button disabled={busy} className="rounded-lg bg-sky-400 text-black px-4 py-2 font-medium">{busy ? 'Signing in…' : 'Sign in'}</button>
+      </form>
       {err && <div className="text-red-400 text-sm mt-2">{err}</div>}
-      <div className="text-sm text-neutral-400 mt-4">Have an account? <a className="underline" href={`/login?next=${encodeURIComponent(nextParam)}`}>Sign in</a></div>
+      <div className="text-sm text-neutral-400 mt-4">
+        No account? <a className="underline" href={`/signup?next=${encodeURIComponent(nextParam)}`}>Sign up</a> · <a className="underline" href="/account/reset">Reset password</a>
+      </div>
     </main>
   );
 }
