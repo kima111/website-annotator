@@ -32,7 +32,7 @@ async function fetchProjectSSR(id: string): Promise<Project | null> {
   const cookieHeader = cookies().getAll().map(c => `${c.name}=${c.value}`).join("; ");
   const res = await fetch(`${base}/api/projects/list`, {
     cache: "no-store",
-    headers: { accept: "application/json", cookie: cookieHeader },
+    headers: { accept: "application/json", cookie: cookieHeader, "pragma": "no-cache", "cache-control": "no-store" },
   }).catch(() => null as any);
 
   if (!res || !res.ok) return null;
@@ -65,6 +65,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       <div className="mt-6 flex gap-2 items-center">
         <Link
           href={annotateLink}
+          prefetch={false}
           className="inline-flex items-center rounded-lg px-3 py-2 font-semibold bg-sky-500 text-black hover:bg-sky-400"
         >
           Annotate

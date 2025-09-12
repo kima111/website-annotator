@@ -35,7 +35,7 @@ export default function LoginPage(){
   }
 
   return (
-    <main className="max-w-md mx-auto p-6">
+    <main className="max-w-md mx-auto p-6" suppressHydrationWarning>
       <h1 className="text-2xl font-bold mb-4">Sign in</h1>
       <form className="space-y-3" onSubmit={onSignin}>
         <input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2"/>
