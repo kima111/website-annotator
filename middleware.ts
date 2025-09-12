@@ -11,8 +11,14 @@ export async function middleware(req: NextRequest) {
       {
         cookies: {
           get(name: string) { return req.cookies.get(name)?.value; },
-          set(name: string, value: string, options?: CookieOptions) { res.cookies.set({ name, value, ...(options||{}) }); },
-          remove(name: string, options?: CookieOptions) { res.cookies.set({ name, value: "", ...(options||{}), expires: new Date(0) }); },
+          set(name: string, value: string, options?: CookieOptions) {
+            const isProd = process.env.NODE_ENV === "production";
+            res.cookies.set({ name, value, ...(options||{}), path: "/", sameSite: "lax", secure: isProd });
+          },
+          remove(name: string, options?: CookieOptions) {
+            const isProd = process.env.NODE_ENV === "production";
+            res.cookies.set({ name, value: "", ...(options||{}), path: "/", sameSite: "lax", secure: isProd, expires: new Date(0) });
+          },
         },
       }
     );
