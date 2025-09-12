@@ -28,5 +28,8 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    // run on everything except static assets, auth endpoints, and callback/logout
+    "/((?!_next/static|_next/image|favicon.ico|auth/callback|logout|api/auth/.*).*)",
+  ],
 };
