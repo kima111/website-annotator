@@ -400,7 +400,13 @@ root.getElementById('addpin').addEventListener('click', ()=>{
     const ox = docX - (rect.left + window.scrollX);
     const oy = docY - (rect.top  + window.scrollY);
     const bbox = { x: rect.x, y: rect.y, w: rect.width, h: rect.height, ox, oy };
-    const id = (crypto && typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+    const id = (window.crypto && typeof window.crypto.randomUUID === 'function')
+      ? window.crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
     const pin = { id, selector: sel, x: docX, y: docY, bbox, comment:'', status:'open', ts:Date.now(), url: state.url };
     state.pins.push(pin);
     refresh();

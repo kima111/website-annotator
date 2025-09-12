@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
@@ -73,23 +74,33 @@ export async function POST(req: NextRequest) {
   if (!body || !body.project_id) {
     return NextResponse.json({ error: "project_id required" }, { status: 400 });
   }
+  if (!body.url || typeof body.url !== "string") {
+    return NextResponse.json({ error: "url required" }, { status: 400 });
+  }
+  if (!body.selector || typeof body.selector !== "string") {
+    return NextResponse.json({ error: "selector required" }, { status: 400 });
+  }
+  if (typeof body.x !== "number" || typeof body.y !== "number") {
+    return NextResponse.json({ error: "x and y (number) required" }, { status: 400 });
+  }
 
   const supa = admin();
   const access = await assertAccess(supa, user.id, body.project_id);
   if (!access.ok) return NextResponse.json({ error: access.msg }, { status: access.status! });
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const payload = {
-    id: body.id, // allow client id for idempotency
+    id: (typeof body.id === "string" && UUID_RE.test(body.id)) ? body.id : randomUUID(),
     project_id: body.project_id,
     user_id: user.id,
-    selector: body.selector ?? "",
-    x: body.x ?? null,
-    y: body.y ?? null,
+    selector: body.selector,
+    x: body.x,
+    y: body.y,
     bbox: body.bbox ?? null,
     comment: body.comment ?? "",
     status: body.status ?? "open",
     image: body.image ?? null,
-    url: body.url ?? null,
+    url: body.url,
   };
 
   const { data, error } = await supa
